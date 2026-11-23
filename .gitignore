@@ -221,3 +221,16 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Project & GEMINI.md Rule 4 exclusions
+.env.*
+!.env.example
+.venv/
+node_modules/
+*.db
+*.sqlite*
+.idea/
+.vscode/
+.gemini/
+.agent/
+.DS_Store
