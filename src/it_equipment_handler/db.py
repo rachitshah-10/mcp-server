@@ -22,6 +22,65 @@ class EquipmentRepository(Protocol):
         """Fetch a department's annual budget and dynamically summed spend for a year."""
         ...
 
+    def get_structured_policies(self, role: str) -> list[dict[str, Any]]:
+        """Fetch deterministic policy rules for a given role."""
+        ...
+
+    def get_policy_clauses(self) -> list[dict[str, Any]]:
+        """Fetch all natural-language policy clauses and reviewer routing rules."""
+        ...
+
+    def search_resources(self, query: str) -> list[dict[str, Any]]:
+        """Filter catalog resources in SQL matching the query or its tokens."""
+        ...
+
+    def get_resource(self, resource_id: str) -> dict[str, Any] | None:
+        """Fetch a single resource record by ID."""
+        ...
+
+    def create_ticket(
+        self,
+        ticket_id: str,
+        employee_id: str,
+        request_text: str,
+        category: str | None,
+        resource_id: str | None,
+        status: str,
+        flag_for_human_review: bool,
+        reviewer_employee_id: str,
+        reason: str,
+        created_at: str,
+    ) -> dict[str, Any]:
+        """Insert a ticket row and return the persisted record."""
+        ...
+
+    def create_log(
+        self,
+        log_id: str,
+        employee_id: str,
+        request_text: str,
+        decision: str,
+        reason: str,
+        created_at: str,
+    ) -> dict[str, Any]:
+        """Insert a finalized APPROVED or DENIED audit log row."""
+        ...
+
+    def record_approval_and_dispatch(
+        self,
+        log_id: str,
+        dispatch_id: str,
+        employee_id: str,
+        resource_id: str,
+        serial_id: str,
+        dispatched_at: str,
+        request_text: str,
+        reason: str,
+        created_at: str,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Atomically insert an active dispatch row and an APPROVED audit log row."""
+        ...
+
 
 def create_connection(db_path: str | Path) -> sqlite3.Connection:
     """Open a SQLite connection with row dicts and foreign keys enabled."""
@@ -114,6 +173,11 @@ def init_schema(conn: sqlite3.Connection) -> None:
             reason TEXT NOT NULL,
             created_at TEXT NOT NULL
         );
+
+        CREATE INDEX IF NOT EXISTS idx_employees_department ON employees(department);
+        CREATE INDEX IF NOT EXISTS idx_dispatches_employee_date ON employee_resource_dispatches(employee_id, dispatched_at);
+        CREATE INDEX IF NOT EXISTS idx_tickets_employee ON tickets(employee_id);
+        CREATE INDEX IF NOT EXISTS idx_policies_role ON structured_policies(role);
         """
     )
     conn.commit()
@@ -218,3 +282,202 @@ class SqliteEquipmentRepository:
             "annual_spend_usd": annual_spend,
             "remaining_budget_usd": round(annual_budget - annual_spend, 2),
         }
+
+    def get_structured_policies(self, role: str) -> list[dict[str, Any]]:
+        """Fetch deterministic policy rules for a given role."""
+        rows = self._conn.execute(
+            """
+            SELECT
+                policy_id,
+                role,
+                employment_type,
+                work_mode,
+                category,
+                allowed,
+                max_active_qty,
+                refresh_months,
+                max_auto_cost_usd,
+                min_tenure_months
+            FROM structured_policies
+            WHERE role = ?
+            ORDER BY policy_id
+            """,
+            (role,),
+        ).fetchall()
+        policies = []
+        for row in rows:
+            item = dict(row)
+            item["allowed"] = bool(item["allowed"])
+            policies.append(item)
+        return policies
+
+    def get_policy_clauses(self) -> list[dict[str, Any]]:
+        """Fetch all natural-language policy clauses and reviewer routing rules."""
+        rows = self._conn.execute(
+            "SELECT clause_id, topic, rule_text, default_reviewer_role FROM policy_clauses ORDER BY clause_id"
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def search_resources(self, query: str) -> list[dict[str, Any]]:
+        """Filter catalog resources in SQL with escaped LIKE terms and bounded result size."""
+        query_lower = query.strip().lower()
+        terms = [query_lower] + [t for t in query_lower.split() if len(t) >= 2]
+        # Deduplicate and cap terms to prevent unbounded OR clauses on long inputs.
+        unique_terms = list(dict.fromkeys(terms))[:8]
+        clauses = " OR ".join(
+            "(LOWER(resource_id) = ? OR LOWER(name) LIKE ? ESCAPE '\\' "
+            "OR LOWER(category) LIKE ? ESCAPE '\\' OR LOWER(aliases) LIKE ? ESCAPE '\\')"
+            for _ in unique_terms
+        )
+        params: list[str] = []
+        for term in unique_terms:
+            escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            like_term = f"%{escaped}%"
+            params.extend([term, like_term, like_term, like_term])
+
+        rows = self._conn.execute(
+            f"""
+            SELECT resource_id, name, category, tier, unit_cost, requires_category, aliases
+            FROM resources
+            WHERE {clauses}
+            ORDER BY resource_id
+            LIMIT 20
+            """,
+            params,
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_resource(self, resource_id: str) -> dict[str, Any] | None:
+        """Fetch a single resource record by ID."""
+        row = self._conn.execute(
+            "SELECT resource_id, name, category, tier, unit_cost, requires_category, aliases FROM resources WHERE resource_id = ?",
+            (resource_id,),
+        ).fetchone()
+        return dict(row) if row is not None else None
+
+    def create_ticket(
+        self,
+        ticket_id: str,
+        employee_id: str,
+        request_text: str,
+        category: str | None,
+        resource_id: str | None,
+        status: str,
+        flag_for_human_review: bool,
+        reviewer_employee_id: str,
+        reason: str,
+        created_at: str,
+    ) -> dict[str, Any]:
+        """Insert a ticket row and return the persisted record."""
+        self._conn.execute(
+            """
+            INSERT INTO tickets (
+                ticket_id, employee_id, request_text, category, resource_id, status,
+                flag_for_human_review, reviewer_employee_id, reason, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                ticket_id,
+                employee_id,
+                request_text,
+                category,
+                resource_id,
+                status,
+                1 if flag_for_human_review else 0,
+                reviewer_employee_id,
+                reason,
+                created_at,
+            ),
+        )
+        self._conn.commit()
+        return {
+            "ticket_id": ticket_id,
+            "employee_id": employee_id,
+            "request_text": request_text,
+            "category": category,
+            "resource_id": resource_id,
+            "status": status,
+            "flag_for_human_review": flag_for_human_review,
+            "reviewer_employee_id": reviewer_employee_id,
+            "reason": reason,
+            "created_at": created_at,
+        }
+
+    def create_log(
+        self,
+        log_id: str,
+        employee_id: str,
+        request_text: str,
+        decision: str,
+        reason: str,
+        created_at: str,
+    ) -> dict[str, Any]:
+        """Insert a finalized APPROVED or DENIED audit log row."""
+        self._conn.execute(
+            """
+            INSERT INTO logs (
+                log_id, employee_id, request_text, decision, reason, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (log_id, employee_id, request_text, decision, reason, created_at),
+        )
+        self._conn.commit()
+        return {
+            "log_id": log_id,
+            "employee_id": employee_id,
+            "request_text": request_text,
+            "decision": decision,
+            "reason": reason,
+            "created_at": created_at,
+        }
+
+    def record_approval_and_dispatch(
+        self,
+        log_id: str,
+        dispatch_id: str,
+        employee_id: str,
+        resource_id: str,
+        serial_id: str,
+        dispatched_at: str,
+        request_text: str,
+        reason: str,
+        created_at: str,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Atomically insert an active dispatch row and an APPROVED audit log row."""
+        # Use a single SQLite transaction so dispatch and audit log succeed or roll back together.
+        with self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO employee_resource_dispatches (
+                    dispatch_id, employee_id, resource_id, serial_id, dispatched_at, returned_at, condition_status
+                ) VALUES (?, ?, ?, ?, ?, NULL, 'active')
+                """,
+                (dispatch_id, employee_id, resource_id, serial_id, dispatched_at),
+            )
+            self._conn.execute(
+                """
+                INSERT INTO logs (
+                    log_id, employee_id, request_text, decision, reason, created_at
+                ) VALUES (?, ?, ?, 'APPROVED', ?, ?)
+                """,
+                (log_id, employee_id, request_text, reason, created_at),
+            )
+
+        dispatch_record = {
+            "dispatch_id": dispatch_id,
+            "employee_id": employee_id,
+            "resource_id": resource_id,
+            "serial_id": serial_id,
+            "dispatched_at": dispatched_at,
+            "returned_at": None,
+            "condition_status": "active",
+        }
+        log_record = {
+            "log_id": log_id,
+            "employee_id": employee_id,
+            "request_text": request_text,
+            "decision": "APPROVED",
+            "reason": reason,
+            "created_at": created_at,
+        }
+        return log_record, dispatch_record
