@@ -107,6 +107,7 @@ def seed_database(conn: sqlite3.Connection, ref_date: date | None = None) -> Non
         ("POL-STD-LAP", "standard_employee", "fte", "any", "laptop", 1, 1, 36, 1800.0, 0),
         ("POL-STD-MON", "standard_employee", "fte", "wfh,hybrid", "monitor", 1, 1, 36, 800.0, 0),
         ("POL-STD-MON-ONSITE", "standard_employee", "fte", "onsite", "monitor", 0, 0, 0, 0.0, 0),
+        ("POL-STD-DCK", "standard_employee", "fte", "wfh,hybrid", "dock", 1, 1, 36, 400.0, 0),
         ("POL-STD-HDS", "standard_employee", "fte", "any", "headset", 1, 1, 24, 200.0, 0),
         ("POL-MGR-LAP", "manager", "fte", "any", "laptop", 1, 1, 24, 2500.0, 0),
         ("POL-MGR-MON", "manager", "fte", "wfh,hybrid", "monitor", 1, 1, 36, 1000.0, 0),

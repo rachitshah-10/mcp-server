@@ -218,3 +218,74 @@ def test_mcp_server_exposes_all_six_tools(tmp_path: Path) -> None:
     assert elig_payload["eligible"] is True
     assert esc_payload["status"] == "escalated"
     assert esc_payload["reviewer_employee_id"] == "E200"
+
+
+def test_flag_for_human_review_blocks_duplicate_followup_request(tmp_path: Path) -> None:
+    """Verify newly escalated tickets record category and trigger OPEN_TICKET_EXISTS on retries."""
+    service, conn = _build_service(tmp_path)
+    try:
+        ticket = service.flag_for_human_review(
+            employee_id="E107",
+            request="Need a 27-inch monitor for home office",
+            reason="Operations annual budget exhausted",
+            reviewer_employee_id="E200",
+        )
+        assert ticket["category"] == "monitor"
+        assert ticket["resource_id"] == "RES-MON-27"
+
+        followup = service.check_request_eligibility("E107", "monitor")
+        assert followup["eligible"] is False
+        assert followup["status_code"] == "OPEN_TICKET_EXISTS"
+    finally:
+        conn.close()
+
+
+def test_finalize_approved_without_resource_id_raises_value_error(tmp_path: Path) -> None:
+    """Verify APPROVED decisions cannot silently skip auto-dispatch by omitting resource_id."""
+    service, conn = _build_service(tmp_path)
+    try:
+        with pytest.raises(ValueError, match="resource_id"):
+            service.finalize_request_decision(
+                employee_id="E101",
+                request_text="Replace laptop",
+                decision="APPROVED",
+                reason="Within policy",
+                resource_id=None,
+            )
+    finally:
+        conn.close()
+
+
+def test_lookup_resource_escapes_like_wildcards(tmp_path: Path) -> None:
+    """Verify SQL LIKE wildcard characters do not match all catalog rows."""
+    service, conn = _build_service(tmp_path)
+    try:
+        assert service.lookup_resource("%")["found"] is False
+        assert service.lookup_resource("_")["found"] is False
+    finally:
+        conn.close()
+
+
+def test_check_request_eligibility_returns_applicable_clauses(tmp_path: Path) -> None:
+    """Verify eligibility results include relevant natural-language policy clauses."""
+    service, conn = _build_service(tmp_path)
+    try:
+        result = service.check_request_eligibility("E107", "monitor")
+        topics = {c["topic"] for c in result["applicable_clauses"]}
+        assert "annual_budget" in topics
+        assert "reviewer_directory" in topics
+    finally:
+        conn.close()
+
+
+def test_check_request_eligibility_enforces_min_tenure_months(tmp_path: Path) -> None:
+    """Verify min_tenure_months policy gate returns INELIGIBLE_TENURE when unmet."""
+    service, conn = _build_service(tmp_path)
+    try:
+        conn.execute("UPDATE structured_policies SET min_tenure_months = 120 WHERE policy_id = 'POL-ENG-LAP'")
+        conn.commit()
+        result = service.check_request_eligibility("E101", "laptop")
+        assert result["eligible"] is False
+        assert result["status_code"] == "INELIGIBLE_TENURE"
+    finally:
+        conn.close()
