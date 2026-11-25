@@ -321,3 +321,113 @@ def test_agent_respects_max_steps_bound(tmp_path: Path) -> None:
 
     with pytest.raises(RuntimeError, match="max_steps"):
         asyncio.run(agent.handle_request("E101", "Need laptop"))
+
+
+def test_agent_reflection_flip_to_escalated_creates_ticket(tmp_path: Path) -> None:
+    """Verify revising a draft to ESCALATED during Reflection still creates a human-review ticket."""
+    from it_equipment_handler.agent import EquipmentRequestAgent
+
+    db_path = tmp_path / "agent_reflect_escalate.db"
+    llm = FakeLLMClient(
+        [
+            (
+                json.dumps({
+                    "thought": "Check E107 monitor eligibility.",
+                    "action": "check_request_eligibility",
+                    "action_input": {"employee_id": "E107", "item": "monitor"},
+                }),
+                100,
+                25,
+            ),
+            (
+                json.dumps({
+                    "thought": "Deny because budget is low.",
+                    "decision": "DENIED",
+                    "resource_id": "RES-MON-27",
+                    "reason": "Operations budget low.",
+                    "draft_response": "Denied due to low budget.",
+                }),
+                120,
+                30,
+            ),
+            (
+                json.dumps({
+                    "status": "REVISED",
+                    "critique": "CLS-BUDGET requires escalating budget shortfalls to manager E200, not denying.",
+                    "decision": "ESCALATED",
+                    "resource_id": "RES-MON-27",
+                    "reviewer_employee_id": "E200",
+                    "reason": "Operations annual budget insufficient; escalated to manager E200.",
+                    "final_response": "Your monitor request has been escalated to your manager (E200).",
+                }),
+                150,
+                50,
+            ),
+        ]
+    )
+    agent = EquipmentRequestAgent(llm_client=llm, db_path=db_path)
+
+    result = asyncio.run(agent.handle_request("E107", "Need a 27-inch monitor"))
+
+    assert result.decision == "ESCALATED"
+    assert result.reflection["status"] == "REVISED"
+    logs_count, tickets_count, _ = _query_counts(db_path)
+    assert logs_count == 0
+    assert tickets_count == 2  # Ticket created post-reflection!
+
+
+def test_agent_blocks_direct_finalize_call_during_react(tmp_path: Path) -> None:
+    """Verify the ReAct loop blocks premature finalize_request_decision tool calls."""
+    from it_equipment_handler.agent import EquipmentRequestAgent
+
+    db_path = tmp_path / "agent_block_finalize.db"
+    llm = FakeLLMClient(
+        [
+            (
+                json.dumps({
+                    "thought": "Try finalizing directly.",
+                    "action": "finalize_request_decision",
+                    "action_input": {
+                        "employee_id": "E101",
+                        "request_text": "Need laptop",
+                        "decision": "APPROVED",
+                        "reason": "Premature",
+                        "resource_id": "RES-LAP-STD",
+                    },
+                }),
+                80,
+                30,
+            ),
+            (
+                json.dumps({
+                    "thought": "Submit draft properly instead.",
+                    "decision": "DENIED",
+                    "resource_id": None,
+                    "reason": "Stopped after guardrail.",
+                    "draft_response": "Denied.",
+                }),
+                90,
+                25,
+            ),
+            (
+                json.dumps({
+                    "status": "CONFIRMED",
+                    "critique": "Confirmed.",
+                    "decision": "DENIED",
+                    "resource_id": None,
+                    "reason": "Stopped after guardrail.",
+                    "final_response": "Denied.",
+                }),
+                90,
+                25,
+            ),
+        ]
+    )
+    agent = EquipmentRequestAgent(llm_client=llm, db_path=db_path)
+
+    result = asyncio.run(agent.handle_request("E101", "Need laptop"))
+
+    assert "Do not call finalize_request_decision directly" in result.trace[0].observation
+    logs_count, _, dispatches_count = _query_counts(db_path)
+    assert logs_count == 1  # Only the post-reflection DENIED log.
+    assert dispatches_count == 7  # No premature APPROVED dispatch occurred.
