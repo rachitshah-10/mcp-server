@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aegis IT — Equipment Policy & ReAct Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="ambient-glow" aria-hidden="true"></div>
+  <div class="app-shell">
+    <!-- Left Navigation Rail -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">A</div>
+        <div>
+          <div class="brand-title">Aegis IT</div>
+          <div class="brand-sub">MCP · ReAct Studio</div>
+        </div>
+      </div>
+
+      <nav class="nav-list">
+        <button class="nav-item active" data-view="console">
+          <span class="nav-dot"></span>
+          <span>Agent Console</span>
+        </button>
+        <button class="nav-item" data-view="policies">
+          <span class="nav-dot"></span>
+          <span>Policies &amp; Clauses</span>
+          <span class="nav-badge" id="badge-policies">0</span>
+        </button>
+        <button class="nav-item" data-view="budgets">
+          <span class="nav-dot"></span>
+          <span>Budgets &amp; Catalog</span>
+          <span class="nav-badge" id="badge-depts">0</span>
+        </button>
+        <button class="nav-item" data-view="directory">
+          <span class="nav-dot"></span>
+          <span>Directory &amp; Ledger</span>
+          <span class="nav-badge" id="badge-tickets">0</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="status-pill">
+          <span class="pulse-dot"></span>
+          <span>MCP stdio · SQLite</span>
+        </div>
+        <button id="btn-reset-db" class="btn-ghost btn-sm" title="Restore synthetic seed data">
+          Reset Demo DB
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main Workspace -->
+    <main class="main-content">
+      <!-- VIEW 1: AGENT CONSOLE (ChatGPT-Style Conversational Layout) -->
+      <section id="view-console" class="view active chat-view">
+        <header class="chat-topbar">
+          <div class="chat-topbar-left">
+            <span class="eyebrow" style="margin:0;">AGENT CONSOLE</span>
+            <span class="meta-chip mono">gpt-6-astra</span>
+            <span class="meta-chip mono" id="meta-year">FY 2026</span>
+          </div>
+          <div class="chat-topbar-right">
+            <label class="sr-only" for="preset-select">Demo scenarios</label>
+            <select id="preset-select" class="compact-select" title="Load a demo scenario">
+              <option value="">Demo scenarios…</option>
+            </select>
+            <button id="btn-clear-chat" class="btn-ghost btn-sm hidden">Clear Chat</button>
+          </div>
+        </header>
+
+        <div class="chat-thread-wrap" id="chat-thread-wrap">
+          <!-- Centered Welcome State -->
+          <div id="chat-empty" class="chat-empty">
+            <div class="chat-empty-mark">A</div>
+            <h1 class="display-title chat-hero-title">What equipment do you need?</h1>
+            <p class="chat-hero-sub">Describe your request in plain English. Aegis will investigate employee records, policy rules, and annual budgets via MCP before deciding.</p>
+            <div class="preset-chips chat-starter-chips" id="preset-chips"></div>
+          </div>
+
+          <!-- Conversational Message Thread -->
+          <div id="chat-messages" class="chat-messages hidden"></div>
+        </div>
+
+        <!-- Sticky Centered Query Composer -->
+        <div class="chat-composer-dock">
+          <div class="chat-composer-box">
+            <textarea
+              id="request-input"
+              class="chat-textarea"
+              rows="1"
+              placeholder="Ask for a laptop refresh, second monitor, dock, or ergonomic accommodation… (Enter to send)"
+            ></textarea>
+
+            <div class="chat-composer-footer">
+              <div class="composer-employee-bar">
+                <span class="composer-emp-label mono">AS</span>
+                <select id="employee-select" class="compact-select emp-inline-select" aria-label="Employee ID"></select>
+                <div id="employee-context-strip" class="context-strip compact-strip"></div>
+              </div>
+
+              <div class="composer-send-group">
+                <span id="run-timer" class="mono subtle-label"></span>
+                <button id="btn-run-agent" class="btn-primary btn-send" title="Send request (Enter)">
+                  <span class="btn-label">Send</span>
+                  <span class="send-arrow" id="send-arrow">↑</span>
+                  <span class="btn-spinner hidden" id="run-spinner"></span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 2: POLICIES & CLAUSES -->
+      <section id="view-policies" class="view">
+        <header class="page-header">
+          <div>
+            <p class="eyebrow">HYBRID POLICY STORE</p>
+            <h1 class="display-title">Policies &amp; Exception Clauses</h1>
+          </div>
+          <button id="btn-toggle-new-clause" class="btn-primary btn-sm">+ Add NL Clause</button>
+        </header>
+
+        <div id="new-clause-drawer" class="panel drawer hidden">
+          <div class="panel-header">
+            <h2>New Natural-Language Policy Clause</h2>
+            <button id="btn-close-clause" class="btn-ghost btn-sm">Cancel</button>
+          </div>
+          <div class="drawer-grid">
+            <div class="field-group">
+              <label for="new-clause-topic">Topic</label>
+              <input id="new-clause-topic" class="input-control" placeholder="e.g. travel_equipment" />
+            </div>
+            <div class="field-group">
+              <label for="new-clause-reviewer">Default Reviewer Role</label>
+              <select id="new-clause-reviewer" class="input-control">
+                <option value="">None</option>
+                <option value="manager">manager</option>
+                <option value="it_ops_lead">it_ops_lead</option>
+                <option value="hr_lead">hr_lead</option>
+                <option value="infosec_lead">infosec_lead</option>
+              </select>
+            </div>
+          </div>
+          <div class="field-group">
+            <label for="new-clause-text">Rule Text</label>
+            <textarea id="new-clause-text" class="input-control textarea-control" rows="2" placeholder="Describe the exception or escalation rule..."></textarea>
+          </div>
+          <button id="btn-create-clause" class="btn-primary btn-sm">Save Clause to SQLite</button>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Structured Policy Limits</h2>
+            <span class="subtle-label">Changes take effect immediately on the next agent run</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Policy ID</th>
+                  <th>Role</th>
+                  <th>Work Mode</th>
+                  <th>Category</th>
+                  <th>Allowed</th>
+                  <th>Max Qty</th>
+                  <th>Refresh (mo)</th>
+                  <th>Auto Cap ($)</th>
+                  <th>Min Tenure</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="policies-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Natural-Language Policy Clauses</h2>
+            <span class="subtle-label">Interpreted by gpt-6-astra during ReAct reasoning</span>
+          </div>
+          <div id="clauses-grid" class="clauses-grid"></div>
+        </div>
+      </section>
+
+      <!-- VIEW 3: BUDGETS & CATALOG -->
+      <section id="view-budgets" class="view">
+        <header class="page-header">
+          <div>
+            <p class="eyebrow">FINANCIAL &amp; ONTOLOGY CONTROLS</p>
+            <h1 class="display-title">Annual Budgets &amp; Hardware Catalog</h1>
+          </div>
+        </header>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Department Annual Budgets</h2>
+            <span class="subtle-label">Spend dynamically summed from current-year dispatches</span>
+          </div>
+          <div id="budgets-grid" class="budgets-grid"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Hardware Resource Catalog</h2>
+            <span class="subtle-label">Edit unit cost to test auto-approval cap &amp; budget thresholds</span>
+          </div>
+          <div id="catalog-grid" class="catalog-grid"></div>
+        </div>
+      </section>
+
+      <!-- VIEW 4: DIRECTORY & LEDGER -->
+      <section id="view-directory" class="view">
+        <header class="page-header">
+          <div>
+            <p class="eyebrow">LIVE SQLITE STATE</p>
+            <h1 class="display-title">Directory, Tickets &amp; Audit Ledger</h1>
+          </div>
+        </header>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Employee Directory</h2>
+            <span class="subtle-label">Toggle status or work mode live to test policy gates</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Name</th>
+                  <th>Role</th>
+                  <th>Department</th>
+                  <th>Manager</th>
+                  <th>Work Mode</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="employees-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="two-col-grid">
+          <div class="panel">
+            <div class="panel-header">
+              <h2>Escalated &amp; Open Tickets</h2>
+              <span class="subtle-label mono" id="count-tickets">0</span>
+            </div>
+            <div id="tickets-list" class="ledger-list"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <h2>Finalized Decision Logs</h2>
+              <span class="subtle-label mono" id="count-logs">0</span>
+            </div>
+            <div id="logs-list" class="ledger-list"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Equipment Dispatch Ledger</h2>
+            <span class="subtle-label mono" id="count-dispatches">0</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Dispatch ID</th>
+                  <th>Employee</th>
+                  <th>Resource</th>
+                  <th>Serial</th>
+                  <th>Cost</th>
+                  <th>Dispatched</th>
+                  <th>Condition</th>
+                </tr>
+              </thead>
+              <tbody id="dispatches-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
